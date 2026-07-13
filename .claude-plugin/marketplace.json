@@ -1,0 +1,12 @@
+{
+  "name": "my-tools",
+  "owner": { "name": "your-name" },
+  "plugins": [
+    {
+      "name": "my-toolkit",
+      "source": "./plugins/my-toolkit",
+      "description": "Your personal skills, commands, and agents",
+      "version": "0.1.0"
+    }
+  ]
+}

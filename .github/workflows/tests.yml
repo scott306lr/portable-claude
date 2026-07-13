@@ -1,0 +1,23 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both userlands on purpose: the scripts must survive BSD (macOS)
+        # and GNU (Linux) tool differences under `set -o pipefail`.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint shell scripts
+        if: runner.os == 'Linux'
+        run: shellcheck install.sh sync.sh tests/run.sh dotfiles/statusline-command.sh
+      - name: Run test suite
+        run: ./tests/run.sh

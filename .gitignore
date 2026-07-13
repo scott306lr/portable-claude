@@ -1,0 +1,10 @@
+# Never let machine state or secrets sneak in
+.credentials.json
+.claude.json
+*.env
+.env*
+**/secrets*
+
+# OS noise
+.DS_Store
+*.swp
