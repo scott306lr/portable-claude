@@ -488,6 +488,14 @@ if [ "$ADOPT" = true ]; then
         ;;
       *)
         ./sync.sh "first commit: adopt this machine's setup"
+        # The one command the README can't spell out verbatim is the clone —
+        # only now is the real URL known, so print it ready to paste.
+        if url="$(git remote get-url origin 2>/dev/null)"; then
+          echo
+          echo "On your other machines:"
+          echo "  git clone $url ~/claude-setup"
+          echo "  cd ~/claude-setup && ./install.sh"
+        fi
         ;;
     esac
   fi

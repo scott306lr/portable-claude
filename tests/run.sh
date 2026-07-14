@@ -316,6 +316,7 @@ assert_eq  "exits 0 (stub claude present)" 0 "$CODE"
 assert_has "sync ran and committed" "$OUT" "✔ committed: first commit: adopt this machine's setup"
 assert_eq  "first commit reached origin" "first commit: adopt this machine's setup" \
            "$(git -C "$BARE" log -1 --format=%s)"
+assert_has "prints the machine-2 bootstrap with the real URL" "$OUT" "git clone $BARE ~/claude-setup"
 
 HB2="$WORK/home_firstcommit2"; mkdir -p "$HB2"
 echo "machine declined" > "$HB2/CLAUDE.md"

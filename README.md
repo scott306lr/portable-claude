@@ -7,17 +7,28 @@ skills — consistent across machines.
 
 ## All the commands you need
 
-**Use this template** (button above) to create a private repo, then:
+With the [GitHub CLI](https://cli.github.com/) every step below is
+copy-paste-able exactly as written — `gh` fills in your account, so there
+is nothing to edit:
 
 ```bash
+# Once — create your private copy of this template:
+gh repo create my-claude-setup --template scott306lr/my-portable-claude --private
+
 # First machine — captures your existing ~/.claude setup into the repo:
-git clone <your-repo> ~/claude-setup
+gh repo clone my-claude-setup ~/claude-setup
 cd ~/claude-setup && ./install.sh --adopt
 
 # Every other machine — the repo's synced setup wins (local files backed up):
-git clone <your-repo> ~/claude-setup
+gh repo clone my-claude-setup ~/claude-setup
 cd ~/claude-setup && ./install.sh
 ```
+
+No `gh`? Click **Use this template** (button above) to create a private
+repo, then `git clone` the URL GitHub shows you to `~/claude-setup` and run
+the same `install.sh` steps. Either way, after the first machine publishes,
+`install.sh` prints the exact clone commands for your other machines — with
+the real URL filled in.
 
 After that, syncing is one command, from anywhere, on any machine — run it
 after editing something to publish, run it on the other machines to receive:
