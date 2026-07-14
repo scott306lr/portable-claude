@@ -41,11 +41,11 @@ done
 if [ "$ROLLBACK" = true ]; then
   echo "Rolling back dotfile links to their pre-install backups:"
   for path in dotfiles/*; do
-    [ -f "$path" ] || continue
+    [ -e "$path" ] || continue
     name="$(basename "$path")"
     dest="$CLAUDE_HOME/$name"
     # shellcheck disable=SC2012  # backup names are our own timestamped pattern
-    backup="$(ls -t "$dest".bak.* 2>/dev/null | head -1 || true)"
+    backup="$(ls -dt "$dest".bak.* 2>/dev/null | head -1 || true)"
     if [ -z "$backup" ]; then
       echo "· $name — no backup to restore, left as is"
       continue
@@ -80,6 +80,7 @@ mtime_of() {  # human-readable mtime, portable best-effort (GNU / BSD / fallback
 }
 
 link_file() {  # symlink dotfiles/<name> → ~/.claude/<name>, with confirm + backup
+  # <name> may be a file or a directory — both link, back up, and prune the same.
   local name="$1"
   local target="$REPO/dotfiles/$name"
   local dest="$CLAUDE_HOME/$name"
@@ -103,6 +104,9 @@ link_file() {  # symlink dotfiles/<name> → ~/.claude/<name>, with confirm + ba
   if [ -e "$dest" ] || [ -L "$dest" ]; then
     if [ -L "$dest" ]; then
       echo "⚠ $dest is a symlink to: $(readlink "$dest")"
+    elif [ -d "$dest" ]; then
+      # shellcheck disable=SC2012  # counting entries; exotic names don't matter
+      echo "⚠ $dest is an existing directory ($(ls "$dest" | wc -l | tr -d ' ') entries, modified $(mtime_of "$dest"))"
     else
       echo "⚠ $dest is an existing file ($(wc -c < "$dest") bytes, modified $(mtime_of "$dest"))"
     fi
@@ -214,9 +218,45 @@ EOF
 # For the first install on a machine that already has a lived-in ~/.claude:
 # the machine's config wins over the repo's placeholders, BEFORE anything is
 # linked or overwritten. Captures three things: manifest files, user-level
-# skills (moved into the plugin — they'd double-load otherwise), and
-# already-registered marketplaces (merged into the settings record).
+# skills/ and hooks/ (verbatim — see below), and already-registered
+# marketplaces (merged into the settings record).
 if [ "$ADOPT" = true ]; then
+  # Machine-2 guard: --adopt is a FIRST-machine tool. A personalized owner in
+  # the catalog means some machine already adopted this repo; replacing its
+  # captured setup with this machine's would propagate on the next sync (git
+  # history keeps the old state, but the overwrite must never go unnoticed).
+  OWNER="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json")).get("owner", {}).get("name", ""))')"
+  has_unlinked=false
+  for d in skills hooks; do
+    if [ -d "$CLAUDE_HOME/$d" ] && [ ! -L "$CLAUDE_HOME/$d" ]; then has_unlinked=true; fi
+  done
+  for path in dotfiles/*; do
+    [ -e "$path" ] || continue
+    dest="$CLAUDE_HOME/$(basename "$path")"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then has_unlinked=true; fi
+  done
+  if [ "$OWNER" != "your-name" ] && [ "$has_unlinked" = true ]; then
+    echo "⚠ This repo already holds an adopted setup (owner: $OWNER), and this"
+    echo "  machine has unlinked config that --adopt would write over it — the"
+    echo "  repo's dotfiles, skills/ and hooks/ get REPLACED by this machine's"
+    echo "  copies, and the next sync publishes that to every machine."
+    if [ "$DRY_RUN" = true ]; then
+      echo "· --dry-run: would stop here for confirmation"
+    elif [ "${FORCE_ADOPT:-}" = "1" ]; then
+      echo "  FORCE_ADOPT=1 → continuing"
+    elif [ "$AUTO_YES" = true ]; then
+      echo "  Refusing to do this under -y. Re-run without -y to confirm, or force"
+      echo "  it: FORCE_ADOPT=1 ./install.sh --adopt -y"
+      exit 1
+    else
+      read -r -p "  Replace the repo's adopted setup with this machine's? [y/N] " answer || answer=""
+      case "$answer" in
+        [yY]*) ;;
+        *) echo "  → aborted, nothing changed"; exit 1 ;;
+      esac
+    fi
+  fi
+
   echo "Adopting this machine's existing setup into the repo:"
 
   for path in dotfiles/*; do
@@ -233,28 +273,48 @@ if [ "$ADOPT" = true ]; then
     fi
   done
 
-  PLUGIN_DIR="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"].removeprefix("./"))')"
-  if [ -d "$CLAUDE_HOME/skills" ]; then
-    for s in "$CLAUDE_HOME/skills"/*/; do
-      [ -e "$s" ] || continue
-      sname="$(basename "$s")"
-      if [ -e "$PLUGIN_DIR/skills/$sname" ]; then
-        echo "· skill '$sname' already in the plugin — skipped"
-        continue
-      fi
-      if [ "$DRY_RUN" = true ]; then
-        echo "· would adopt skill '$sname' into $PLUGIN_DIR/skills/"
-      else
-        cp -RL "${s%/}" "$PLUGIN_DIR/skills/$sname"
-        echo "✔ adopted skill '$sname'"
-      fi
-    done
+  # Directories are captured VERBATIM: a skill invoked as /name on this
+  # machine stays /name (user-level, unprefixed) on every machine — nothing
+  # moves into the plugin or gets renamed. Only these two are captured;
+  # machine state (projects/, sessions/, cache/, …) stays machine-local.
+  # Note: syncing copies a third-party skill set into your repo — a fork
+  # that stops tracking upstream. Sets that also ship as a Claude Code
+  # plugin are better installed as one (they update via the Record).
+  for d in skills hooks; do
+    src="$CLAUDE_HOME/$d"
+    [ -d "$src" ] || continue
+    [ ! -L "$src" ] || continue
     if [ "$DRY_RUN" = true ]; then
-      echo "· would move $CLAUDE_HOME/skills aside (the plugin serves them from now on)"
+      echo "· would adopt $d/ (this machine's copy replaces the repo one)"
     else
-      skills_bak="$CLAUDE_HOME/skills.pre-adopt.$(date +%Y%m%d%H%M%S)"
-      mv "$CLAUDE_HOME/skills" "$skills_bak"
-      echo "✔ moved ~/.claude/skills aside → $skills_bak (the plugin serves them now)"
+      rm -rf "dotfiles/$d"
+      cp -RL "$src" "dotfiles/$d"
+      echo "✔ adopted $d/"
+    fi
+  done
+
+  # First adoption personalizes the catalog: the placeholder owner becomes
+  # this machine's git identity. Doubles as the machine-2 guard's
+  # "already adopted" marker (above), so it must happen on adopt — not later.
+  if [ "$OWNER" = "your-name" ]; then
+    new_owner="$(git config user.name 2>/dev/null || true)"
+    [ -n "$new_owner" ] || new_owner="${USER:-}"
+    if [ -z "$new_owner" ]; then
+      :   # no identity on this machine — leave the placeholder
+    elif [ "$DRY_RUN" = true ]; then
+      echo "· would set marketplace owner to '$new_owner'"
+    else
+      python3 - "$new_owner" <<'EOF'
+import json, sys
+
+with open(".claude-plugin/marketplace.json") as f:
+    mp = json.load(f)
+mp.setdefault("owner", {})["name"] = sys.argv[1]
+with open(".claude-plugin/marketplace.json", "w") as f:
+    json.dump(mp, f, indent=2)
+    f.write("\n")
+EOF
+      echo "✔ marketplace owner set to '$new_owner'"
     fi
   fi
 
@@ -305,9 +365,9 @@ echo
 # the one combination where users can bury a setup they meant to keep.
 if [ "$ADOPT" = false ]; then
   for path in dotfiles/*; do
-    [ -f "$path" ] || continue
+    [ -e "$path" ] || continue
     dest="$CLAUDE_HOME/$(basename "$path")"
-    if [ -f "$dest" ] && [ ! -L "$dest" ]; then
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
       echo "ℹ This machine already has a Claude Code setup (e.g. $dest)."
       echo "  · FIRST machine, and you want to keep this setup?"
       echo "      stop now and re-run:  ./install.sh --adopt"
@@ -319,14 +379,11 @@ if [ "$ADOPT" = false ]; then
   done
 fi
 [ "$DRY_RUN" = true ] || mkdir -p "$CLAUDE_HOME"
-# dotfiles/ itself is the manifest: every top-level file in it gets linked.
-# To sync a new file, just add it to dotfiles/ — no script changes needed.
+# dotfiles/ itself is the manifest: every top-level entry — file or directory —
+# gets linked. To sync something new, just add it to dotfiles/.
 for path in dotfiles/*; do
-  if [ -d "$path" ]; then
-    echo "⚠ skipping $path/ — directories in dotfiles/ are not supported yet"
-    continue
-  fi
-  [ -f "$path" ] && link_file "$(basename "$path")"
+  [ -e "$path" ] || continue
+  link_file "$(basename "$path")"
 done
 
 if ! command -v claude >/dev/null 2>&1; then

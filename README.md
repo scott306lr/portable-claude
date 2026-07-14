@@ -36,9 +36,29 @@ That's the whole workflow. The rest of this README is detail.
 
 `./install.sh --adopt` captures the machine's existing setup into the repo
 before anything is linked: your memory and settings replace the template
-placeholders, user-level skills move into the plugin, and already-registered
-marketplaces are written into the settings record. The repo adopts the
-machine, not the other way around (`--adopt --dry-run` previews it).
+placeholders, user-level `skills/` and `hooks/` are captured **verbatim**
+into `dotfiles/`, and already-registered marketplaces are written into the
+settings record. Nothing is renamed or moved between scopes — a skill you
+invoke as `/name` on this machine is `/name` on every machine
+(`docs/adr/0003`). The first adoption also stamps the marketplace catalog's
+`owner` from your `git config user.name` — no manual editing. The repo
+adopts the machine, not the other way around (`--adopt --dry-run`
+previews it).
+
+One heads-up: syncing a third-party skill set this way copies it into your
+repo — a fork that stops tracking upstream. A set that also ships as a
+Claude Code plugin is better installed as one; updates then flow through
+the marketplace and the registration syncs via the settings record:
+
+```bash
+claude plugin marketplace add <owner>/<repo>
+claude plugin install <plugin>@<marketplace>
+```
+
+`--adopt` is a first-machine tool. Running it against a repo that already
+holds an adopted setup (say, on machine 2 by mistake) would replace that
+setup with the current machine's — so it stops and asks first, and refuses
+under `-y` unless you force it with `FORCE_ADOPT=1`.
 
 Adoption doesn't commit anything — review with `git diff`, then publish
 with `sync-claude "adopt this machine's setup"`, which also runs the capture
@@ -58,12 +78,13 @@ through normal use — no setup phase:
   the repo file.
 - **Settings**: change them in Claude Code as usual; they land in the repo
   the same way.
-- **Skills**: add a folder under `plugins/my-toolkit/skills/`, or ask Claude
-  to write one. A skill is a folder containing a `SKILL.md` with YAML
-  frontmatter (`name`, `description`) followed by instructions — see
-  `skills/sync-claude/` for a working example. Add
-  `disable-model-invocation: true` to the frontmatter for skills only the
-  user should trigger (a "slash command").
+- **Skills**: add a folder under `dotfiles/skills/` (invoked as `/name`,
+  like any user-level skill) or under `plugins/my-toolkit/skills/`
+  (invoked as `/my-toolkit:name`), or ask Claude to write one. A skill is
+  a folder containing a `SKILL.md` with YAML frontmatter (`name`,
+  `description`) followed by instructions — see `skills/sync-claude/` for
+  a working example. Add `disable-model-invocation: true` to the
+  frontmatter for skills only the user should trigger (a "slash command").
 
 Run `sync-claude` whenever you want the changes on your other machines. The
 sample `CLAUDE.md` text can be replaced once you have your own preferences
@@ -104,11 +125,13 @@ files fine, but Claude Code keeps state outside the files:
 
 The repo uses two mechanisms:
 
-- **Symlinked dotfiles.** Every top-level file in `dotfiles/` is linked
-  into `~/.claude/`; the directory listing is the manifest, so adding a
-  file to the directory is all it takes to sync it. Because they're links
-  rather than copies, changes Claude Code itself writes to `settings.json`
-  (enabling a plugin, adding a marketplace) land in the repo too.
+- **Symlinked dotfiles.** Every top-level entry in `dotfiles/` — file or
+  directory — is linked into `~/.claude/`; the directory listing is the
+  manifest, so adding an entry is all it takes to sync it. Because they're
+  links rather than copies, changes Claude Code itself writes to
+  `settings.json` (enabling a plugin, adding a marketplace) land in the
+  repo too — as do skills a tool like skills.sh installs into the linked
+  `~/.claude/skills/`.
 - **A self-hosted plugin marketplace.** The repo is also a Claude Code
   plugin marketplace, registered from the local clone path — no separate
   repo, no GitHub fetch, no auth.
@@ -116,10 +139,11 @@ The repo uses two mechanisms:
 ## What's inside
 
 ```
-dotfiles/                         # the manifest: every file here syncs
+dotfiles/                         # the manifest: every entry here syncs
   CLAUDE.md                       #   global memory → ~/.claude/CLAUDE.md
   settings.json                   #   user settings → ~/.claude/settings.json
   statusline-command.sh           #   example statusline (dir | git | model | ctx%)
+  skills/                         #   user-level skills, synced verbatim (/name)
 plugins/my-toolkit/               # your plugin — skills, agents, hooks
   skills/sync-claude/             #   the /sync-claude command (and a format example)
 .claude-plugin/marketplace.json   # marketplace catalog (rename "my-tools" if you like)

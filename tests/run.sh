@@ -163,6 +163,15 @@ assert_has "finds the nested leak" "$OUT" "newdir/leak.md"
 assert_eq  "committed nothing" "test fixture" "$(git -C "$CLONE" log -1 --format=%s)"
 rm -rf "$CLONE/newdir"
 
+section "sync.sh secret gate knows newer provider prefixes"
+fake_hf="hf_$(printf '%s' 'abcdefghijklmnopqrstuvwxyz0123456789')"
+printf 'notes\n%s\n' "$fake_hf" > "$CLONE/leak.md"
+run "$HC" "$CLONE" ./sync.sh "must never land"
+assert_eq  "exits 1" 1 "$CODE"
+assert_has "flags the hugging face token" "$OUT" "leak.md"
+assert_eq  "committed nothing" "test fixture" "$(git -C "$CLONE" log -1 --format=%s)"
+rm "$CLONE/leak.md"
+
 section "sync.sh bumps changed plugin versions, commits, pushes"
 PLUGIN="$(python3 -c "import json; print(json.load(open('$CLONE/.claude-plugin/marketplace.json'))['plugins'][0]['name'])")"
 PLUGIN_JSON="$CLONE/plugins/$PLUGIN/.claude-plugin/plugin.json"
@@ -216,39 +225,79 @@ assert_eq  "exits 0" 0 "$CODE"
 assert_has "resolves the repo through the symlink" "$OUT" "would refresh marketplace"
 
 section "install.sh --adopt captures an existing machine setup"
-HA="$WORK/home_adopt"; mkdir -p "$HA/skills/my-skill" "$HA/plugins"
+HA="$WORK/home_adopt"; mkdir -p "$HA/skills/my-skill" "$HA/hooks" "$HA/plugins"
 echo "my precious memory" > "$HA/CLAUDE.md"
 printf '{\n  "enabledPlugins": {}\n}\n' > "$HA/settings.json"
 echo "skill body" > "$HA/skills/my-skill/SKILL.md"
+echo "hook body" > "$HA/hooks/my-hook.sh"
 cat > "$HA/plugins/known_marketplaces.json" <<'EOF'
 {"acme-mkt": {"source": {"source": "github", "repo": "acme/mkt"}, "autoUpdate": true}}
 EOF
 run "$HA" "$CLONE" ./install.sh --adopt --dry-run
 assert_eq  "dry-run exits 0" 0 "$CODE"
 assert_has "previews file adoption" "$OUT" "would adopt CLAUDE.md"
-assert_has "previews skill adoption" "$OUT" "would adopt skill 'my-skill'"
+assert_has "previews skills adoption" "$OUT" "would adopt skills/"
+assert_has "previews hooks adoption" "$OUT" "would adopt hooks/"
 assert_has "previews the marketplace record" "$OUT" "would record marketplaces: acme-mkt"
 assert_has "previews the first-commit offer" "$OUT" "would offer to sync the adopted setup"
+assert_has "previews owner personalization" "$OUT" "would set marketplace owner to 'test suite'"
 grep -q "my precious memory" "$CLONE/dotfiles/CLAUDE.md" \
   && bad "dry-run modified the repo" || ok "dry-run left the repo untouched"
+[ -e "$CLONE/dotfiles/skills/my-skill" ] \
+  && bad "dry-run adopted the skills dir" || ok "dry-run adopted no directories"
 
 run "$HA" "$CLONE" ./install.sh --adopt -y
 assert_eq  "exits 1 (stops at the missing claude CLI)" 1 "$CODE"
 assert_eq  "repo CLAUDE.md is the machine's" "my precious memory" "$(cat "$CLONE/dotfiles/CLAUDE.md")"
-[ -f "$CLONE/plugins/$PLUGIN/skills/my-skill/SKILL.md" ] \
-  && ok "skill adopted into the plugin" || bad "skill missing from the plugin"
+[ -f "$CLONE/dotfiles/skills/my-skill/SKILL.md" ] \
+  && ok "skill captured verbatim into dotfiles/skills" || bad "skill missing from dotfiles/skills"
+[ -e "$CLONE/plugins/$PLUGIN/skills/my-skill" ] \
+  && bad "skill moved into the plugin (rebranded)" || ok "skill NOT moved into the plugin"
 [ -L "$HA/CLAUDE.md" ] && ok "machine file linked after adoption" || bad "machine file not linked"
-[ -d "$HA/skills" ] && bad "user-level skills dir still present (would double-load)" \
-                    || ok "user-level skills dir moved aside"
-ls -d "$HA"/skills.pre-adopt.* >/dev/null 2>&1 \
-  && ok "skills backup kept" || bad "skills backup missing"
+assert_eq  "skills dir linked to the repo" "$CLONE/dotfiles/skills" "$(readlink "$HA/skills")"
+[ -f "$HA/skills/my-skill/SKILL.md" ] \
+  && ok "skill still user-level after adoption (same name, same scope)" \
+  || bad "skill unreachable through the link"
+ls -d "$HA"/skills.bak.* >/dev/null 2>&1 \
+  && ok "pre-link skills backup kept" || bad "skills backup missing"
+assert_eq  "hooks dir linked to the repo" "$CLONE/dotfiles/hooks" "$(readlink "$HA/hooks")"
+[ -f "$CLONE/dotfiles/hooks/my-hook.sh" ] \
+  && ok "hook captured verbatim into dotfiles/hooks" || bad "hook missing from dotfiles/hooks"
 rec="$(python3 -c "import json; print(json.load(open('$CLONE/dotfiles/settings.json'))['extraKnownMarketplaces']['acme-mkt']['autoUpdate'])")"
 assert_eq  "marketplace recorded with autoUpdate" "True" "$rec"
+own="$(python3 -c "import json; print(json.load(open('$CLONE/.claude-plugin/marketplace.json'))['owner']['name'])")"
+assert_eq  "marketplace owner personalized from git identity" "test suite" "$own"
 
-mkdir -p "$HA/skills/my-skill"   # simulate a leftover user-level copy
-echo "skill body" > "$HA/skills/my-skill/SKILL.md"
 run "$HA" "$CLONE" ./install.sh --adopt -y
-assert_has "re-adopt skips skills already in the plugin" "$OUT" "skill 'my-skill' already in the plugin"
+assert_has "re-adopt is idempotent (dirs already linked)" "$OUT" "skills already linked"
+[ -f "$CLONE/dotfiles/skills/my-skill/SKILL.md" ] \
+  && ok "re-adopt kept the captured skill" || bad "re-adopt lost the captured skill"
+
+section "install.sh --rollback restores an adopted directory"
+run "$HA" "$CLONE" ./install.sh --rollback
+assert_has "reports the dir restore" "$OUT" "✔ restored skills"
+[ -L "$HA/skills" ] && bad "skills is still a symlink after rollback" || ok "skills symlink removed"
+[ -f "$HA/skills/my-skill/SKILL.md" ] \
+  && ok "original skills dir restored" || bad "original skills dir missing"
+
+section "install.sh --adopt refuses to clobber an already-adopted repo"
+HG="$WORK/home_guard"; mkdir -p "$HG"
+echo "machine two memory" > "$HG/CLAUDE.md"
+run "$HG" "$CLONE" ./install.sh --adopt -y
+assert_eq  "blocks -y adopt of an adopted repo" 1 "$CODE"
+assert_has "explains the overwrite risk" "$OUT" "already holds an adopted setup"
+assert_has "offers the escape hatch" "$OUT" "FORCE_ADOPT=1"
+assert_eq  "repo CLAUDE.md untouched" "my precious memory" "$(cat "$CLONE/dotfiles/CLAUDE.md")"
+OUT="$(cd "$CLONE" && printf 'n\n' | CLAUDE_HOME="$HG" PATH="$SAFE_PATH" ./install.sh --adopt 2>&1)"; CODE=$?
+assert_eq  "interactive decline aborts" 1 "$CODE"
+assert_has "reports the abort" "$OUT" "aborted, nothing changed"
+run "$HG" "$CLONE" ./install.sh --adopt --dry-run
+assert_eq  "dry-run previews the guard without stopping" 0 "$CODE"
+assert_has "dry-run mentions the confirmation" "$OUT" "would stop here for confirmation"
+OUT="$(cd "$CLONE" && FORCE_ADOPT=1 CLAUDE_HOME="$HG" PATH="$SAFE_PATH" ./install.sh --adopt -y 2>&1)"; CODE=$?
+assert_eq  "FORCE_ADOPT=1 proceeds (stops later at the missing CLI)" 1 "$CODE"
+assert_has "notes the override" "$OUT" "FORCE_ADOPT=1 → continuing"
+assert_eq  "repo CLAUDE.md is now machine two's" "machine two memory" "$(cat "$CLONE/dotfiles/CLAUDE.md")"
 
 section "install.sh --adopt offers the first-commit sync (stub claude CLI)"
 # A stub claude on PATH lets install.sh run to completion, so the prompt at
@@ -270,7 +319,9 @@ assert_eq  "first commit reached origin" "first commit: adopt this machine's set
 
 HB2="$WORK/home_firstcommit2"; mkdir -p "$HB2"
 echo "machine declined" > "$HB2/CLAUDE.md"
-OUT="$(cd "$CLONE" && printf 'y\nn\n' | CLAUDE_HOME="$HB2" PATH="$SAFE_PATH:$WORK/bin" ./install.sh --adopt 2>&1)"; CODE=$?
+# stdin: confirm the machine-2 guard (y), overwrite CLAUDE.md at the link
+# step (y), decline the first-commit sync (n).
+OUT="$(cd "$CLONE" && printf 'y\ny\nn\n' | CLAUDE_HOME="$HB2" PATH="$SAFE_PATH:$WORK/bin" ./install.sh --adopt 2>&1)"; CODE=$?
 assert_eq  "exits 0" 0 "$CODE"
 assert_has "declining prints the manual command" "$OUT" 'review with'
 assert_lacks "declining does not commit the new adoption" "$OUT" "✔ committed: first commit"

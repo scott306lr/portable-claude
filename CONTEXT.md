@@ -7,9 +7,9 @@ machine → repo → other machines via `sync.sh`.
 ## Language
 
 **Dotfile**:
-A top-level file in `dotfiles/`, symlinked into `~/.claude/`. The
-directory listing itself is the manifest — dropping a file in makes it
-sync; no script changes needed.
+A top-level entry in `dotfiles/` — file or directory — symlinked into
+`~/.claude/`. The directory listing itself is the manifest — dropping
+an entry in makes it sync; no script changes needed.
 _Avoid_: config file, settings file
 
 **Record**:

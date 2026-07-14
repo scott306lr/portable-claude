@@ -41,10 +41,10 @@ MARKETPLACE="$(python3 -c 'import json; print(json.load(open(".claude-plugin/mar
 # NOT reaching the repo — syncing would silently publish stale files. This
 # stops hard rather than warns: the warning version proved ignorable while
 # the links had quietly come undone.
-# dotfiles/ itself is the manifest: every top-level file in it must be linked.
+# dotfiles/ itself is the manifest: every top-level entry in it must be linked.
 unlinked=false
 for path in dotfiles/*; do
-  [ -f "$path" ] || continue
+  [ -e "$path" ] || continue
   f="$(basename "$path")"
   if [ "$(readlink "$CLAUDE_HOME/$f" 2>/dev/null)" != "$PWD/dotfiles/$f" ]; then
     echo "✖ $CLAUDE_HOME/$f is not linked to this repo — edits made there are NOT syncing."
@@ -160,7 +160,7 @@ EOF
 # ── 4. Secret scan gate: never commit anything that looks like a secret ──────
 # High-signal patterns only (real token prefixes, key blocks) so docs that
 # *mention* tokens don't trip it. False positive? SKIP_SECRET_SCAN=1 ./sync.sh
-SECRET_PATTERNS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|AKIA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+SECRET_PATTERNS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|AKIA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20}|npm_[A-Za-z0-9]{36}|hf_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 if [ "${SKIP_SECRET_SCAN:-}" != "1" ]; then
   leaks=""
   while IFS= read -r f; do
