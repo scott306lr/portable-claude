@@ -5,33 +5,29 @@
 A template for keeping a Claude Code setup — global memory, settings,
 skills — consistent across machines.
 
-## All the commands you need
-
-With the [GitHub CLI](https://cli.github.com/) every step below is
-copy-paste-able exactly as written — `gh` fills in your account, so there
-is nothing to edit:
+## Quickstart
 
 ```bash
 # Once — create your private copy of this template:
 gh repo create my-claude-setup --template scott306lr/my-portable-claude --private
 
-# First machine — captures your existing ~/.claude setup into the repo:
+# First machine — capture its existing ~/.claude setup:
 gh repo clone my-claude-setup ~/claude-setup
 cd ~/claude-setup && ./install.sh --adopt
 
-# Every other machine — the repo's synced setup wins (local files backed up):
+# Every other machine — receive the synced setup:
 gh repo clone my-claude-setup ~/claude-setup
 cd ~/claude-setup && ./install.sh
 ```
 
-No `gh`? Click **Use this template** (button above) to create a private
-repo, then `git clone` the URL GitHub shows you to `~/claude-setup` and run
-the same `install.sh` steps. Either way, after the first machine publishes,
-`install.sh` prints the exact clone commands for your other machines — with
-the real URL filled in.
+Every line works as written: [`gh`](https://cli.github.com/) fills in your
+account. Without `gh`, click **Use this template** and clone the new repo
+to `~/claude-setup` instead. To undo, `./install.sh --rollback` restores
+the pre-install backups, and `gh repo delete my-claude-setup` removes the
+repo — after `gh auth refresh -s delete_repo` grants the scope.
 
-After that, syncing is one command, from anywhere, on any machine — run it
-after editing something to publish, run it on the other machines to receive:
+After that, syncing is one command — publish from the machine you edited
+on, receive on the others:
 
 ```bash
 sync-claude "what I changed"        # in a shell (install.sh puts it on PATH)
@@ -41,83 +37,48 @@ sync-claude "what I changed"        # in a shell (install.sh puts it on PATH)
 /my-toolkit:sync-claude what I changed    # inside Claude Code
 ```
 
+A sync is an ordinary git commit: preview with `sync-claude --dry-run`,
+undo with `git revert`.
+
 That's the whole workflow. The rest of this README is detail.
 
 ## First machine: adopting an existing setup
 
-`./install.sh --adopt` captures the machine's existing setup into the repo
-before anything is linked: your memory and settings replace the template
-placeholders, user-level `skills/` and `hooks/` are captured **verbatim**
-into `dotfiles/`, and already-registered marketplaces are written into the
-settings record. Nothing is renamed or moved between scopes — a skill you
-invoke as `/name` on this machine is `/name` on every machine
-(`docs/adr/0003`). The first adoption also stamps the marketplace catalog's
-`owner` from your `git config user.name` — no manual editing. The repo
-adopts the machine, not the other way around (`--adopt --dry-run`
-previews it).
+`./install.sh --adopt` copies the machine's setup into the repo before
+anything is linked. The repo adopts the machine, not the other way around.
+It captures three things:
 
-One heads-up: syncing a third-party skill set this way copies it into your
-repo — a fork that stops tracking upstream. A set that also ships as a
-Claude Code plugin is better installed as one; updates then flow through
-the marketplace and the registration syncs via the settings record:
+- **Files** — your memory and settings replace the template placeholders.
+- **Directories** — user-level `skills/` and `hooks/`, verbatim. A skill
+  invoked as `/name` here stays `/name` on every machine (`docs/adr/0003`).
+- **Marketplaces** — already-registered ones land in the settings record,
+  and the catalog `owner` is stamped from `git config user.name`.
 
-```bash
-claude plugin marketplace add <owner>/<repo>
-claude plugin install <plugin>@<marketplace>
-```
+`--adopt --dry-run` previews all of it.
 
-`--adopt` is a first-machine tool. Running it against a repo that already
-holds an adopted setup (say, on machine 2 by mistake) would replace that
-setup with the current machine's — so it stops and asks first, and refuses
-under `-y` unless you force it with `FORCE_ADOPT=1`.
+> [!NOTE]
+> A third-party skill set synced this way becomes a fork: it stops
+> tracking upstream. If it also ships as a Claude Code plugin, install
+> the plugin instead — updates then flow through the marketplace:
+>
+> ```bash
+> claude plugin marketplace add <owner>/<repo>
+> claude plugin install <plugin>@<marketplace>
+> ```
 
-Adoption doesn't commit anything — review with `git diff`, then publish
-with `sync-claude "adopt this machine's setup"`, which also runs the capture
-through the secret scan before it reaches your remote.
+`--adopt` is for the first machine only. On a repo that already holds an
+adopted setup it stops and asks; under `-y` it refuses unless
+`FORCE_ADOPT=1` is set.
 
-Starting truly fresh, with no existing setup? Plain `./install.sh` works
+Adoption commits nothing. Review with `git diff`, then publish with
+`sync-claude "adopt this machine's setup"` — the secret scan runs first.
+Let `--adopt` run that first sync itself and it prints the exact clone
+commands for your other machines.
+
+Starting fresh, with no existing setup? Plain `./install.sh` works
 as-is; the template's defaults are functional without any editing. And if
 you run plain `./install.sh` on a machine that *does* have an existing
 setup, it notices and reminds you about `--adopt` before touching anything.
-
-## Personalizing
-
-The installed files are symlinks into the repo, so personalization happens
-through normal use — no setup phase:
-
-- **Memory**: edit `~/.claude/CLAUDE.md` (or let Claude edit it) — that *is*
-  the repo file.
-- **Settings**: change them in Claude Code as usual; they land in the repo
-  the same way.
-- **Skills**: add a folder under `dotfiles/skills/` (invoked as `/name`,
-  like any user-level skill) or under `plugins/my-toolkit/skills/`
-  (invoked as `/my-toolkit:name`), or ask Claude to write one. A skill is
-  a folder containing a `SKILL.md` with YAML frontmatter (`name`,
-  `description`) followed by instructions — see `skills/sync-claude/` for
-  a working example. Add `disable-model-invocation: true` to the
-  frontmatter for skills only the user should trigger (a "slash command").
-
-Run `sync-claude` whenever you want the changes on your other machines. The
-sample `CLAUDE.md` text can be replaced once you have your own preferences
-in it. Different marketplace/plugin
-names than `my-tools`/`my-toolkit`? Rename them in
-`.claude-plugin/marketplace.json` and `plugins/` once, before the first
-install — the scripts read the names from the catalog.
-
-## What a sync run does
-
-- pulls other machines' changes first (rebase, autostash)
-- bumps the version of any plugin whose content changed, so edited skills
-  actually reload on other machines (see below)
-- warns if a marketplace registered on this machine isn't recorded for the
-  others yet, printing the JSON to paste in
-- refuses to commit anything matching secret patterns (tokens, private-key
-  blocks)
-- commits, pushes, and refreshes the local plugin cache
-- stops if `install.sh` hasn't wired the symlinks, since edits in
-  `~/.claude` wouldn't be reaching the repo
-
-`sync-claude --dry-run` shows what a run would do without writing anything.
 
 ## Why not just a dotfiles repo?
 
@@ -136,16 +97,49 @@ files fine, but Claude Code keeps state outside the files:
 
 The repo uses two mechanisms:
 
-- **Symlinked dotfiles.** Every top-level entry in `dotfiles/` — file or
-  directory — is linked into `~/.claude/`; the directory listing is the
-  manifest, so adding an entry is all it takes to sync it. Because they're
-  links rather than copies, changes Claude Code itself writes to
-  `settings.json` (enabling a plugin, adding a marketplace) land in the
-  repo too — as do skills a tool like skills.sh installs into the linked
+- **Symlinked dotfiles.** Every entry in `dotfiles/` — file or directory —
+  is linked into `~/.claude/`; the listing is the manifest. Because they
+  are links, whatever writes to `~/.claude` lands in the repo: Claude Code
+  editing `settings.json`, or an installer dropping a skill into
   `~/.claude/skills/`.
 - **A self-hosted plugin marketplace.** The repo is also a Claude Code
   plugin marketplace, registered from the local clone path — no separate
   repo, no GitHub fetch, no auth.
+
+## Personalizing
+
+The installed files are symlinks into the repo, so personalization happens
+through normal use — no setup phase:
+
+- **Memory**: edit `~/.claude/CLAUDE.md` (or let Claude edit it) — that *is*
+  the repo file.
+- **Settings**: change them in Claude Code as usual; they land in the repo
+  the same way.
+- **Skills**: a skill is a folder holding a `SKILL.md` — YAML frontmatter
+  (`name`, `description`), then instructions. Put it in `dotfiles/skills/`
+  to invoke it as `/name`, or in `plugins/my-toolkit/skills/` for
+  `/my-toolkit:name`. See `skills/sync-claude/` for a working example.
+  Add `disable-model-invocation: true` for skills only the user should
+  trigger (a "slash command").
+
+Prefer different names than `my-tools`/`my-toolkit`? Rename them once in
+`.claude-plugin/marketplace.json` and `plugins/` before the first install —
+the scripts read the names from the catalog.
+
+## What a sync run does
+
+- pulls other machines' changes first (rebase, autostash)
+- bumps the version of any plugin whose content changed, so edited skills
+  actually reload on other machines
+- warns if a marketplace registered on this machine isn't recorded for the
+  others yet, printing the JSON to paste in
+- refuses to commit anything matching secret patterns (tokens, private-key
+  blocks)
+- commits, pushes, and refreshes the local plugin cache
+- stops if `install.sh` hasn't wired the symlinks, since edits in
+  `~/.claude` wouldn't be reaching the repo
+
+`sync-claude --dry-run` shows what a run would do without writing anything.
 
 ## What's inside
 
@@ -186,8 +180,9 @@ broken marketplaces from their recorded sources.
 - Conversation history and auto-memory (`~/.claude/projects/`, `history.jsonl`)
 - API keys/tokens → per-machine env vars, referenced as `${VAR}` in configs
 
-Don't commit secrets, even to a private repo. The scan gate is a tripwire,
-not permission to be careless.
+> [!WARNING]
+> Don't commit secrets, even to a private repo. The scan gate is a
+> tripwire, not permission to be careless.
 
 ## Support
 
