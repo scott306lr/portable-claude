@@ -16,6 +16,18 @@
 set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The suite must behave identically on any machine. Fail fast on missing
+# dependencies (the scripts themselves need them), neutralize global git
+# config (commit.gpgsign=true would break every fixture commit), and drop
+# escape hatches that change the scripts' behavior mid-suite.
+for dep in git python3; do
+  command -v "$dep" >/dev/null 2>&1 || { echo "✘ missing dependency: $dep"; exit 2; }
+done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+unset SKIP_SECRET_SCAN FORCE_ADOPT CLAUDE_HOME
+printf 'env: %s · bash %s · %s\n' "$(uname -s)" "${BASH_VERSION%%(*}" "$(git --version)"
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/mcs-tests.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"   # normalize: macOS TMPDIR ends in '/', and the
                                  # scripts canonicalize paths — comparisons must match
@@ -25,10 +37,15 @@ trap 'rm -rf "$WORK"' EXIT
 SAFE_PATH="/usr/bin:/bin"
 
 PASS=0 FAIL=0
+CURRENT="" FAILED_RECAP=""
 
-section() { printf '\n— %s\n' "$1"; }
+section() { CURRENT="$1"; printf '\n— %s\n' "$1"; }
 ok()      { printf '  ✔ %s\n' "$1"; PASS=$((PASS+1)); }
-bad()     { printf '  ✘ %s\n' "$1"; FAIL=$((FAIL+1)); }
+bad()     {  # record the section so a long CI log still reads at a glance
+  printf '  ✘ %s\n' "$1"; FAIL=$((FAIL+1))
+  FAILED_RECAP="${FAILED_RECAP}  ✘ ${CURRENT}: $1
+"
+}
 
 assert_eq()    { [ "$2" = "$3" ] && ok "$1" || bad "$1 — want [$2], got [$3]"; }
 assert_has()   { case "$2" in *"$3"*) ok "$1" ;; *) bad "$1 — output lacks [$3]" ;; esac; }
@@ -350,5 +367,8 @@ OUT="$(cd "$CLONE" && CLAUDE_HOME="$HB2" PATH="$SAFE_PATH:$WORK/bin" ./install.s
 assert_has "-y skips the prompt, prints the command instead" "$OUT" "captured but not committed"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
+if [ "$FAIL" -gt 0 ]; then
+  printf '\nFailed:\n%s' "$FAILED_RECAP"
+fi
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
