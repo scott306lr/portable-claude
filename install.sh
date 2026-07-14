@@ -491,10 +491,11 @@ if [ "$ADOPT" = true ]; then
         # The one command the README can't spell out verbatim is the clone —
         # only now is the real URL known, so print it ready to paste.
         if url="$(git remote get-url origin 2>/dev/null)"; then
+          reponame="$(basename "$url" .git)"
           echo
           echo "On your other machines:"
-          echo "  git clone $url ~/claude-setup"
-          echo "  cd ~/claude-setup && ./install.sh"
+          echo "  git clone $url ~/$reponame"
+          echo "  cd ~/$reponame && ./install.sh"
         fi
         ;;
     esac

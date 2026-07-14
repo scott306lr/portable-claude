@@ -12,17 +12,17 @@ skills — consistent across machines.
 gh repo create my-claude-setup --template scott306lr/my-portable-claude --private
 
 # First machine — capture its existing ~/.claude setup:
-gh repo clone my-claude-setup ~/claude-setup
-cd ~/claude-setup && ./install.sh --adopt
+gh repo clone my-claude-setup ~/my-claude-setup
+cd ~/my-claude-setup && ./install.sh --adopt
 
 # Every other machine — receive the synced setup:
-gh repo clone my-claude-setup ~/claude-setup
-cd ~/claude-setup && ./install.sh
+gh repo clone my-claude-setup ~/my-claude-setup
+cd ~/my-claude-setup && ./install.sh
 ```
 
 Every line works as written: [`gh`](https://cli.github.com/) fills in your
-account. Without `gh`, click **Use this template** and clone the new repo
-to `~/claude-setup` instead. To undo, `./install.sh --rollback` restores
+account. Without `gh`, click **Use this template** and `git clone` the new
+repo instead. To undo, `./install.sh --rollback` restores
 the pre-install backups, and `gh repo delete my-claude-setup` removes the
 repo — after `gh auth refresh -s delete_repo` grants the scope.
 
