@@ -2,8 +2,9 @@
 
 [![tests](https://github.com/scott306lr/my-portable-claude/actions/workflows/tests.yml/badge.svg)](https://github.com/scott306lr/my-portable-claude/actions/workflows/tests.yml)
 
-A template for keeping a Claude Code setup — global memory, settings,
-skills — consistent across machines.
+Use this template if you run Claude Code on multiple computers or servers
+and want your global memory, settings, skills, hooks, agents, and private
+plugins to behave consistently everywhere.
 
 ## Quickstart
 
@@ -134,7 +135,8 @@ the scripts read the names from the catalog.
 - stops if `install.sh` hasn't wired the symlinks, since edits in
   `~/.claude` wouldn't be reaching the repo
 
-`sync-claude --dry-run` shows what a run would do without writing anything.
+Sync is git, not realtime: edit the same file on two machines before
+syncing and you get an ordinary merge conflict to resolve.
 
 ## What's inside
 
@@ -176,8 +178,11 @@ broken marketplaces from their recorded sources.
 - API keys/tokens → per-machine env vars, referenced as `${VAR}` in configs
 
 > [!WARNING]
-> Don't commit secrets, even to a private repo. The scan gate is a
-> tripwire, not permission to be careless.
+> Don't commit secrets, even to a private repo. The scan gate catches
+> known token shapes in changed files — it cannot recognize a novel
+> secret; it's a tripwire, not permission to be careless. Keep the
+> generated repo private, and read any hooks or skills a template
+> shipped before running `install.sh` — they execute on your machine.
 
 ## Development
 
